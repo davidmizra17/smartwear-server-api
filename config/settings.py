@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "apps.tenants",
     "apps.users",
     "apps.orders",
+    "apps.events",
     "drf_spectacular",
 ]
 
