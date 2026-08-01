@@ -1,11 +1,11 @@
 
-import threading
+from contextvars import ContextVar
 
-_thread_locals = threading.local()
+_current_tenant: ContextVar = ContextVar("current_tenant", default=None)
 
 
 def get_current_tenant():
-    return getattr(_thread_locals, "tenant", None)
+    return _current_tenant.get()
 
 
 class TenantMiddleware:
@@ -17,10 +17,12 @@ class TenantMiddleware:
         if hasattr(request, "user") and request.user.is_authenticated:
             tenant = request.user.tenant
 
-        _thread_locals.tenant = tenant
+        token = _current_tenant.set(tenant)
         request.tenant = tenant
 
-        response = self.get_response(request)
+        try:
+            response = self.get_response(request)
+        finally:
+            _current_tenant.reset(token)
 
-        _thread_locals.tenant = None
         return response
