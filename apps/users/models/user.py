@@ -1,9 +1,11 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 
+from apps.users.models.base import AbstractPersonModel
+
 
 class UserManager(BaseUserManager):
-    def create_user(self, email, tenant, password=None, **extra_fields):
+    def create_user(self, email, tenant=None, password=None, **extra_fields):
         if not email:
             raise ValueError("Email is required")
         email = self.normalize_email(email)
@@ -18,8 +20,10 @@ class UserManager(BaseUserManager):
         return self.create_user(email, tenant=None, password=password, **extra_fields)
 
 
-class User(AbstractBaseUser, PermissionsMixin):
-    email = models.EmailField(unique=True)
+ROLE_CHOICES = [("Master", "Master"), ("Operator", "Operator")]
+
+
+class User(AbstractPersonModel, AbstractBaseUser, PermissionsMixin):
     tenant = models.ForeignKey(
         "tenants.Tenant",
         on_delete=models.CASCADE,
@@ -27,8 +31,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         related_name="users",
     )
-    first_name = models.CharField(max_length=150, blank=True)
-    last_name = models.CharField(max_length=150, blank=True)
+    role = models.CharField(max_length=50, choices=ROLE_CHOICES, default="Operator")
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(auto_now_add=True)

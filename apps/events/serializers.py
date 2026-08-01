@@ -8,6 +8,7 @@ from apps.orders.serializers import ProductSerializer
 class EventSerializer(serializers.ModelSerializer):
     product = ProductSerializer(read_only=True)
     product_id = serializers.PrimaryKeyRelatedField(
+        # Product is a global catalog with no tenant FK — all authenticated users share it
         queryset=Product.objects.all(),
         source="product",
         required=False,
