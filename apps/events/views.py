@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from apps.events.filters import EventFilter
 from apps.events.models import Event
+from apps.events.permissions import IsEventOwnerOrSuperuser
 from apps.events.serializers import EventSerializer
 
 
@@ -18,7 +19,7 @@ from apps.events.serializers import EventSerializer
 )
 class EventViewSet(viewsets.ModelViewSet):
     serializer_class = EventSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsEventOwnerOrSuperuser]
     filterset_class = EventFilter
     ordering_fields = ["event_date", "created_at", "status"]
 

@@ -25,6 +25,14 @@ class UserManagementSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Only superusers can assign the Master role.")
         return value
 
+    def validate(self, attrs):
+        # Resolve effective role and tenant accounting for partial updates
+        role = attrs.get("role", getattr(self.instance, "role", None))
+        tenant = attrs.get("tenant", getattr(self.instance, "tenant", None))
+        if role == "Operator" and not tenant:
+            raise serializers.ValidationError({"tenant": "Operator users must be assigned a tenant."})
+        return attrs
+
     def create(self, validated_data):
         password = validated_data.pop("password")
         validated_data["email"] = User.objects.normalize_email(validated_data["email"])
