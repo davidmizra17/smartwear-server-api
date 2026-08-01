@@ -43,7 +43,7 @@ class UserViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if user.is_superuser:
-            return User.objects.all().order_by("date_joined")
+            return User.objects.select_related("tenant").order_by("date_joined")
         if not user.tenant_id:
             return User.objects.none()
-        return User.objects.filter(tenant=user.tenant).order_by("date_joined")
+        return User.objects.select_related("tenant").filter(tenant=user.tenant).order_by("date_joined")
