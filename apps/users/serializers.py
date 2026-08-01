@@ -19,8 +19,15 @@ class UserManagementSerializer(serializers.ModelSerializer):
         fields = ["id", "email", "first_name", "last_name", "tenant", "role", "is_active", "password", "date_joined"]
         read_only_fields = ["id", "date_joined"]
 
+    def validate_role(self, value):
+        request = self.context.get("request")
+        if value == "Master" and not (request and request.user.is_superuser):
+            raise serializers.ValidationError("Only superusers can assign the Master role.")
+        return value
+
     def create(self, validated_data):
         password = validated_data.pop("password")
+        validated_data["email"] = User.objects.normalize_email(validated_data["email"])
         user = User(**validated_data)
         user.set_password(password)
         user.save()

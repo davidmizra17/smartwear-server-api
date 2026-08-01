@@ -1,5 +1,6 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 
 from apps.events.filters import EventFilter
@@ -27,4 +28,6 @@ class EventViewSet(viewsets.ModelViewSet):
         return Event.objects.select_related("product", "created_by").all()
 
     def perform_create(self, serializer):
+        if not self.request.user.tenant_id:
+            raise PermissionDenied("User is not associated with a tenant.")
         serializer.save(client=self.request.user.tenant, created_by=self.request.user)

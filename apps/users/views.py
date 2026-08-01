@@ -44,4 +44,6 @@ class UserViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_superuser:
             return User.objects.all().order_by("date_joined")
+        if not user.tenant_id:
+            return User.objects.none()
         return User.objects.filter(tenant=user.tenant).order_by("date_joined")
