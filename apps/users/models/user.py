@@ -5,7 +5,7 @@ from apps.users.models.base import AbstractPersonModel
 
 
 class UserManager(BaseUserManager):
-    def create_user(self, email, tenant, password=None, **extra_fields):
+    def create_user(self, email, tenant=None, password=None, **extra_fields):
         if not email:
             raise ValueError("Email is required")
         email = self.normalize_email(email)

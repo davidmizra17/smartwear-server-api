@@ -3,8 +3,9 @@ from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 class IsEventOwnerOrSuperuser(BasePermission):
     """
-    Object-level permission: read access for all authenticated users in the
-    tenant; write access only for the event's creator or a superuser.
+    Object-level permission: restricts write operations (PUT/PATCH/DELETE) to
+    the event's creator or a superuser. Read access and create are handled by
+    IsAuthenticated and perform_create respectively — this class does not cover them.
     """
 
     def has_object_permission(self, request, view, obj):
