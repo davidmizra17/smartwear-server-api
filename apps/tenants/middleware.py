@@ -15,7 +15,7 @@ class TenantMiddleware:
     def __call__(self, request):
         tenant = None
         if hasattr(request, "user") and request.user.is_authenticated:
-            tenant = request.user.tenant
+            tenant = getattr(request.user, "tenant", None)
 
         token = _current_tenant.set(tenant)
         request.tenant = tenant
