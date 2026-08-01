@@ -1,5 +1,3 @@
-import logging
-
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -7,8 +5,6 @@ from rest_framework.permissions import IsAuthenticated
 from apps.events.filters import EventFilter
 from apps.events.models import Event
 from apps.events.serializers import EventSerializer
-
-logger = logging.getLogger(__name__)
 
 
 @extend_schema_view(
@@ -26,8 +22,9 @@ class EventViewSet(viewsets.ModelViewSet):
     ordering_fields = ["event_date", "created_at", "status"]
 
     def get_queryset(self):
+        if self.request.user.is_superuser:
+            return Event.unscoped.select_related("product", "created_by").all()
         return Event.objects.select_related("product", "created_by").all()
 
     def perform_create(self, serializer):
-        logger.info("perform_create: user=%s tenant=%s", self.request.user, self.request.user.tenant)
         serializer.save(client=self.request.user.tenant, created_by=self.request.user)

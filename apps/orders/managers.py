@@ -7,6 +7,6 @@ class TenantScopedManager(models.Manager):
     def get_queryset(self):
         qs = super().get_queryset()
         tenant = get_current_tenant()
-        if tenant is not None:
-            qs = qs.filter(client_id=tenant.id)
-        return qs
+        if tenant is None:
+            return qs.none()
+        return qs.filter(client_id=tenant.id)
