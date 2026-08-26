@@ -1,7 +1,10 @@
+from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
+
+docs_permission_classes = [AllowAny] if settings.DEBUG else [IsAuthenticated]
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -11,7 +14,9 @@ urlpatterns = [
     path("api/v1/", include("apps.orders.urls")),
     path("api/v1/events/", include("apps.events.urls")),
     path("api/v1/", include("apps.tenants.urls")),
-    path("api/schema/", SpectacularAPIView.as_view(permission_classes=[IsAuthenticated]), name="schema"),
-    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema", permission_classes=[IsAuthenticated]), name="swagger-ui"),
-    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema", permission_classes=[IsAuthenticated]), name="redoc"),
+    path("api/v1/catalog/", include("apps.catalog.urls")),
+    path("api/v1/admin/", include("apps.catalog.urls_admin")),
+    path("api/schema/", SpectacularAPIView.as_view(permission_classes=docs_permission_classes), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema", permission_classes=docs_permission_classes), name="swagger-ui"),
+    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema", permission_classes=docs_permission_classes), name="redoc"),
 ]

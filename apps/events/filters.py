@@ -10,4 +10,4 @@ class EventFilter(django_filters.FilterSet):
 
     class Meta:
         model = Event
-        fields = ["event_date_after", "event_date_before", "status", "product_name"]
+        fields = ["event_date_after", "event_date_before", "product_name"]

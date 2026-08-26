@@ -19,12 +19,20 @@ class Product(models.Model):
 
 
 class Order(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_ORDERED = "ordered"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_ORDERED, "Ordered"),
+        (STATUS_CANCELLED, "Cancelled"),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    product = models.ForeignKey(
-        Product,
-        on_delete=models.DO_NOTHING,
-        db_constraint=False,
-        related_name="orders",
+    event = models.OneToOneField(
+        "events.Event",
+        on_delete=models.CASCADE,
+        related_name="order",
     )
     client = models.ForeignKey(
         "tenants.Tenant",
@@ -32,20 +40,15 @@ class Order(models.Model):
         db_constraint=False,
         related_name="orders",
     )
-    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, null=True)
-    quantity = models.IntegerField(null=True)
-    inventory_value = models.DecimalField(max_digits=12, decimal_places=2, null=True)
-    raw_nombre = models.TextField(unique=True)
-    source_file = models.TextField()
-    uploaded_at = models.DateTimeField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     objects = TenantScopedManager()
     unscoped = models.Manager()
 
     class Meta:
-        managed = False
-        db_table = "order"
-        ordering = ["-uploaded_at"]
+        ordering = ["-created_at"]
 
     def __str__(self):
-        return self.raw_nombre
+        return f"Order for {self.event_id}"

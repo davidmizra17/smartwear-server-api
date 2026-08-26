@@ -11,18 +11,28 @@ class ProductSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
-    product = ProductSerializer(read_only=True)
+    event_title = serializers.CharField(source="event.title", read_only=True)
+    event_date = serializers.DateField(source="event.event_date", read_only=True)
+    created_by_email = serializers.EmailField(source="event.created_by.email", read_only=True)
 
     class Meta:
         model = Order
         fields = [
             "id",
-            "product",
-            "unit_cost",
-            "quantity",
-            "inventory_value",
-            "raw_nombre",
-            "source_file",
-            "uploaded_at",
+            "event",
+            "event_title",
+            "event_date",
+            "created_by_email",
+            "status",
+            "created_at",
+            "updated_at",
         ]
-        read_only_fields = fields
+        read_only_fields = [
+            "id",
+            "event",
+            "event_title",
+            "event_date",
+            "created_by_email",
+            "created_at",
+            "updated_at",
+        ]
