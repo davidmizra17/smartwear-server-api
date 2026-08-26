@@ -47,3 +47,4 @@ class UserViewSet(viewsets.ModelViewSet):
         if not user.tenant_id:
             return User.objects.none()
         return User.objects.select_related("tenant").filter(tenant=user.tenant).order_by("date_joined")
+

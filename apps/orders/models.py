@@ -19,33 +19,48 @@ class Product(models.Model):
 
 
 class Order(models.Model):
+    # Lifecycle: pending (customer is still composing the basket) -> submitted
+    # (customer confirmed; lines are frozen and the tenant is notified) ->
+    # ordered / cancelled (Master's decision). Only the pending -> submitted
+    # transition is owner-driven; the rest are Master-only.
+    STATUS_PENDING = "pending"
+    STATUS_SUBMITTED = "submitted"
+    STATUS_ORDERED = "ordered"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_SUBMITTED, "Submitted"),
+        (STATUS_ORDERED, "Ordered"),
+        (STATUS_CANCELLED, "Cancelled"),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    product = models.ForeignKey(
-        Product,
-        on_delete=models.DO_NOTHING,
-        db_constraint=False,
-        related_name="orders",
+    event = models.OneToOneField(
+        "events.Event",
+        on_delete=models.CASCADE,
+        related_name="order",
     )
+    # Null for independent customers; mirrors Event.client, from which it is
+    # copied on creation.
     client = models.ForeignKey(
         "tenants.Tenant",
         on_delete=models.DO_NOTHING,
         db_constraint=False,
+        null=True,
+        blank=True,
         related_name="orders",
     )
-    unit_cost = models.DecimalField(max_digits=12, decimal_places=2, null=True)
-    quantity = models.IntegerField(null=True)
-    inventory_value = models.DecimalField(max_digits=12, decimal_places=2, null=True)
-    raw_nombre = models.TextField(unique=True)
-    source_file = models.TextField()
-    uploaded_at = models.DateTimeField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
-    objects = TenantScopedManager()
+    # Order has no created_by of its own; it reaches the creating user through
+    # its Event.
+    objects = TenantScopedManager(owner_path="event__created_by_id")
     unscoped = models.Manager()
 
     class Meta:
-        managed = False
-        db_table = "order"
-        ordering = ["-uploaded_at"]
+        ordering = ["-created_at"]
 
     def __str__(self):
-        return self.raw_nombre
+        return f"Order for {self.event_id}"

@@ -1,7 +1,14 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from apps.users.models import User
+from apps.users.models import LegalRepresentative, User
+
+
+class LegalRepresentativeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LegalRepresentative
+        fields = ["id", "first_name", "last_name", "email", "id_number"]
+        read_only_fields = ["id"]
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -24,14 +31,6 @@ class UserManagementSerializer(serializers.ModelSerializer):
         if value == "Master" and not (request and request.user.is_superuser):
             raise serializers.ValidationError("Only superusers can assign the Master role.")
         return value
-
-    def validate(self, attrs):
-        # Resolve effective role and tenant accounting for partial updates
-        role = attrs.get("role", getattr(self.instance, "role", None))
-        tenant = attrs.get("tenant", getattr(self.instance, "tenant", None))
-        if role == "Operator" and not tenant:
-            raise serializers.ValidationError({"tenant": "Operator users must be assigned a tenant."})
-        return attrs
 
     def create(self, validated_data):
         password = validated_data.pop("password")

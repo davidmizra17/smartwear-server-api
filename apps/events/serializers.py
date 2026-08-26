@@ -1,14 +1,40 @@
 from rest_framework import serializers
 
-from apps.events.models import Event
+from apps.events.models import Event, OrderLine
 from apps.orders.models import Product
 from apps.orders.serializers import ProductSerializer
+
+
+class OrderLineSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderLine
+        fields = [
+            "id",
+            "variant",
+            "qty",
+            "unit_price_cents_snapshot",
+            "product_name_snapshot",
+            "image_key_snapshot",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class OrderLineWriteSerializer(serializers.Serializer):
+    variant_id = serializers.UUIDField()
+    qty = serializers.IntegerField(min_value=1, default=1)
+
+
+class OrderLineQtySerializer(serializers.Serializer):
+    qty = serializers.IntegerField(min_value=1)
 
 
 class EventSerializer(serializers.ModelSerializer):
     product = ProductSerializer(read_only=True)
     product_id = serializers.PrimaryKeyRelatedField(
-        # Product is a global catalog with no tenant FK — all authenticated users share it
+        # Deprecated write path, superseded by POST /events/{id}/lines/. Kept so
+        # historical events (created before the product picker) remain readable/editable.
         queryset=Product.objects.all(),
         source="product",
         required=False,
@@ -16,6 +42,7 @@ class EventSerializer(serializers.ModelSerializer):
         write_only=True,
     )
     created_by_email = serializers.EmailField(source="created_by.email", read_only=True)
+    lines = OrderLineSerializer(many=True, read_only=True)
 
     class Meta:
         model = Event
@@ -25,9 +52,9 @@ class EventSerializer(serializers.ModelSerializer):
             "event_date",
             "quantity",
             "notes",
-            "status",
             "product",
             "product_id",
+            "lines",
             "created_by_email",
             "created_at",
             "updated_at",
