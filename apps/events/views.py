@@ -34,9 +34,14 @@ class EventViewSet(viewsets.ModelViewSet):
         return Event.objects.select_related("product", "created_by").prefetch_related("lines").all()
 
     def perform_create(self, serializer):
-        if not self.request.user.tenant_id:
-            raise PermissionDenied("User is not associated with a tenant.")
-        event = serializer.save(client=self.request.user.tenant, created_by=self.request.user)
+        user = self.request.user
+        # Tenantless privileged accounts are the one case that still cannot
+        # create: the row would land in the independent space, which their own
+        # scope (DenyAll) can never read back. Independent customers are fine —
+        # client resolves to None and OwnerScope picks the row up by created_by.
+        if user.tenant_id is None and (user.is_superuser or user.role == "Master"):
+            raise PermissionDenied("Tenantless Master and superuser accounts cannot create events.")
+        event = serializer.save(client=user.tenant, created_by=user)
         Order.objects.create(event=event, client=event.client)
 
     @extend_schema(tags=["events"], request=OrderLineWriteSerializer, responses=OrderLineSerializer)

@@ -34,17 +34,23 @@ class Order(models.Model):
         on_delete=models.CASCADE,
         related_name="order",
     )
+    # Null for independent customers; mirrors Event.client, from which it is
+    # copied on creation.
     client = models.ForeignKey(
         "tenants.Tenant",
         on_delete=models.DO_NOTHING,
         db_constraint=False,
+        null=True,
+        blank=True,
         related_name="orders",
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = TenantScopedManager()
+    # Order has no created_by of its own; it reaches the creating user through
+    # its Event.
+    objects = TenantScopedManager(owner_path="event__created_by_id")
     unscoped = models.Manager()
 
     class Meta:

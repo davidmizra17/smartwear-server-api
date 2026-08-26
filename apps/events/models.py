@@ -23,10 +23,15 @@ class Event(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # Null for independent customers — users who act on their own behalf and
+    # are not attached to any tenant. Such rows are scoped by created_by
+    # instead; see apps.tenants.scope.OwnerScope.
     client = models.ForeignKey(
         "tenants.Tenant",
         on_delete=models.DO_NOTHING,
         db_constraint=False,
+        null=True,
+        blank=True,
         related_name="events",
     )
     created_by = models.ForeignKey(
@@ -54,7 +59,7 @@ class Event(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = TenantScopedManager()
+    objects = TenantScopedManager(owner_path="created_by_id")
     unscoped = models.Manager()
 
     class Meta:
