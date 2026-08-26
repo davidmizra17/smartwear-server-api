@@ -26,6 +26,10 @@ class OrderLineWriteSerializer(serializers.Serializer):
     qty = serializers.IntegerField(min_value=1, default=1)
 
 
+class OrderLineQtySerializer(serializers.Serializer):
+    qty = serializers.IntegerField(min_value=1)
+
+
 class EventSerializer(serializers.ModelSerializer):
     product = ProductSerializer(read_only=True)
     product_id = serializers.PrimaryKeyRelatedField(

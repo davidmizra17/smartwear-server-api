@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 
 from apps.catalog.models import Product, Variant
 from apps.events.models import Event, OrderLine
+from apps.orders.models import Order
 from apps.tenants.models import Tenant
 from apps.users.models import User
 
@@ -27,6 +28,7 @@ class OrderLineTests(TestCase):
         self.api.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
 
         self.event = Event.objects.create(client=self.tenant, created_by=self.user, title="Order", event_date="2026-08-20")
+        self.order = Order.unscoped.create(event=self.event, client=self.tenant)
 
     def _add_line(self, qty=1, variant_id=None):
         return self.api.post(

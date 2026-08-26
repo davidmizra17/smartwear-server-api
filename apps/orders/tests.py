@@ -1,4 +1,5 @@
 import uuid
+from unittest import mock
 
 from django.core import mail
 from django.test import TestCase
@@ -6,7 +7,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.catalog.models import Product as CatalogProduct, Variant
-from apps.events.models import Event
+from apps.events.models import Event, OrderLine
 from apps.orders.models import Order
 from apps.orders.tasks import send_order_created_email
 from apps.tenants.models import Tenant
@@ -347,75 +348,144 @@ class TenantlessPrivilegedCreationTests(OrderTestsBase):
         self.assertEqual(Order.unscoped.count(), before)
 
 
-class OrderCreatedEmailTests(OrderTestsBase):
+class OrderSubmitTests(OrderTestsBase):
     """
-    Requirement 3: notify the tenant's configured recipients when an order is
-    created. Runs inline because CELERY_TASK_ALWAYS_EAGER is on under tests, and
-    Django swaps in the locmem email backend, so no broker or SMTP is needed.
+    Submitting is the point at which an order exists to be notified about.
+    Creating an Event only opens an empty basket.
     """
 
     def setUp(self):
         super().setUp()
         self.tenant_a.order_notification_emails = ["ops@clientea.com", "admin@clientea.com"]
         self.tenant_a.save()
+        self.product = CatalogProduct.objects.create(name="Camisa")
+        self.variant = Variant.objects.create(
+            product=self.product, sku="CAM-L", size="L", price_cents=2500, currency="USD"
+        )
         mail.outbox = []
 
-    def _create_event(self, title="Evento con correo"):
-        return self.api.post("/api/v1/events/", {"title": title, "event_date": "2026-09-15"})
+    def _new_event(self, title="Evento con correo"):
+        return self.api.post(
+            "/api/v1/events/", {"title": title, "event_date": "2026-09-15"}
+        ).data["id"]
 
-    def test_order_creation_sends_email_to_configured_recipients(self):
+    def _add_line(self, event_id, qty=3):
+        return self.api.post(
+            f"/api/v1/events/{event_id}/lines/",
+            {"variant_id": str(self.variant.id), "qty": qty},
+            format="json",
+        )
+
+    def _submit(self, event_id):
+        return self.api.post(f"/api/v1/events/{event_id}/submit/")
+
+    def test_creating_event_alone_sends_no_email(self):
         self._auth("operator-a@test.com", "pass1234")
-        res = self._create_event()
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self._new_event()
+        self.assertEqual(mail.outbox, [])
+
+    def test_submit_sends_email_with_the_actual_lines(self):
+        # The whole point: assert on the mail the system really sends, through
+        # the real HTTP flow, not by invoking the task by hand.
+        self._auth("operator-a@test.com", "pass1234")
+        event_id = self._new_event()
+        self._add_line(event_id, qty=3)
+        res = self._submit(event_id)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["status"], Order.STATUS_SUBMITTED)
         self.assertEqual(len(mail.outbox), 1)
         message = mail.outbox[0]
         self.assertEqual(message.to, ["ops@clientea.com", "admin@clientea.com"])
         self.assertIn("Evento con correo", message.subject)
-        self.assertIn("Client A", message.body)
+        self.assertIn("Camisa", message.body)
+        self.assertIn("x3", message.body)
+        self.assertIn("75.00", message.body)
+        self.assertNotIn("Sin productos agregados", message.body)
 
-    def test_no_email_when_tenant_has_no_recipients_configured(self):
-        # tenant_b was never configured; this must be a clean no-op, not an error.
-        self._auth("master-b@test.com", "pass1234")
-        res = self._create_event()
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+    def test_submit_is_dispatched_asynchronously(self):
+        # Pins the async contract independently of CELERY_TASK_ALWAYS_EAGER,
+        # which would otherwise hide a regression to a blocking inline call.
+        self._auth("operator-a@test.com", "pass1234")
+        event_id = self._new_event()
+        self._add_line(event_id)
+        with mock.patch("apps.events.views.send_order_created_email.delay") as delayed:
+            self._submit(event_id)
+        delayed.assert_called_once()
+
+    def test_cannot_submit_empty_order(self):
+        self._auth("operator-a@test.com", "pass1234")
+        event_id = self._new_event()
+        res = self._submit(event_id)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(mail.outbox, [])
 
-    def test_tenant_does_not_receive_other_tenants_notifications(self):
-        self._auth("master-b@test.com", "pass1234")
-        self._create_event()
-        for message in mail.outbox:
-            self.assertNotIn("ops@clientea.com", message.to)
+    def test_cannot_submit_twice(self):
+        self._auth("operator-a@test.com", "pass1234")
+        event_id = self._new_event()
+        self._add_line(event_id)
+        self._submit(event_id)
+        mail.outbox = []
+        res = self._submit(event_id)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mail.outbox, [])
 
-    def test_independent_customer_order_sends_no_email(self):
-        # No tenant means no recipient list to read; must not raise.
+    def test_lines_are_frozen_after_submit(self):
+        self._auth("operator-a@test.com", "pass1234")
+        event_id = self._new_event()
+        self._add_line(event_id)
+        line_id = OrderLine.objects.get(event_id=event_id).id
+        self._submit(event_id)
+
+        self.assertEqual(self._add_line(event_id).status_code, status.HTTP_400_BAD_REQUEST)
+        patched = self.api.patch(
+            f"/api/v1/events/{event_id}/lines/{line_id}/", {"qty": 9}, format="json"
+        )
+        self.assertEqual(patched.status_code, status.HTTP_400_BAD_REQUEST)
+        deleted = self.api.delete(f"/api/v1/events/{event_id}/lines/{line_id}/")
+        self.assertEqual(deleted.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(OrderLine.objects.get(event_id=event_id).qty, 3)
+
+    def test_other_tenant_cannot_submit(self):
+        self._auth("operator-a@test.com", "pass1234")
+        event_id = self._new_event()
+        self._add_line(event_id)
+        mail.outbox = []
+        self._auth("master-b@test.com", "pass1234")
+        self.assertEqual(self._submit(event_id).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(mail.outbox, [])
+
+    def test_no_email_when_tenant_has_no_recipients_configured(self):
+        self.tenant_a.order_notification_emails = []
+        self.tenant_a.save()
+        self._auth("operator-a@test.com", "pass1234")
+        event_id = self._new_event()
+        self._add_line(event_id)
+        res = self._submit(event_id)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(mail.outbox, [])
+
+    def test_independent_customer_submit_sends_no_email(self):
         User.objects.create_user(
             email="indep-mail@test.com", tenant=None, password="pass1234", role="Operator"
         )
         self._auth("indep-mail@test.com", "pass1234")
-        res = self._create_event()
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        event_id = self._new_event()
+        self._add_line(event_id)
+        res = self._submit(event_id)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(mail.outbox, [])
 
-    def test_email_body_lists_order_lines_with_total(self):
+    def test_qty_patch_rejects_non_numeric_instead_of_500(self):
         self._auth("operator-a@test.com", "pass1234")
-        event_id = self._create_event().data["id"]
-        product = CatalogProduct.objects.create(name="Camisa")
-        variant = Variant.objects.create(
-            product=product, sku="CAM-L", size="L", price_cents=2500, currency="USD"
-        )
-        mail.outbox = []
-        self.api.post(
-            f"/api/v1/events/{event_id}/lines/",
-            {"variant_id": str(variant.id), "qty": 3},
-            format="json",
-        )
-        order = Order.unscoped.get(event_id=event_id)
-        send_order_created_email(str(order.id))
-        self.assertEqual(len(mail.outbox), 1)
-        body = mail.outbox[0].body
-        self.assertIn("Camisa", body)
-        self.assertIn("x3", body)
-        self.assertIn("75.00", body)
+        event_id = self._new_event()
+        self._add_line(event_id)
+        line_id = OrderLine.objects.get(event_id=event_id).id
+        for bad in ("abc", [1], None, 0):
+            res = self.api.patch(
+                f"/api/v1/events/{event_id}/lines/{line_id}/", {"qty": bad}, format="json"
+            )
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, msg=f"qty={bad!r}")
 
     def test_task_is_noop_for_missing_order(self):
         send_order_created_email(str(uuid.uuid4()))

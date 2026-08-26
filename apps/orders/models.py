@@ -19,11 +19,17 @@ class Product(models.Model):
 
 
 class Order(models.Model):
+    # Lifecycle: pending (customer is still composing the basket) -> submitted
+    # (customer confirmed; lines are frozen and the tenant is notified) ->
+    # ordered / cancelled (Master's decision). Only the pending -> submitted
+    # transition is owner-driven; the rest are Master-only.
     STATUS_PENDING = "pending"
+    STATUS_SUBMITTED = "submitted"
     STATUS_ORDERED = "ordered"
     STATUS_CANCELLED = "cancelled"
     STATUS_CHOICES = [
         (STATUS_PENDING, "Pending"),
+        (STATUS_SUBMITTED, "Submitted"),
         (STATUS_ORDERED, "Ordered"),
         (STATUS_CANCELLED, "Cancelled"),
     ]

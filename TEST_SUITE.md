@@ -1,6 +1,6 @@
 # Test Suite
 
-Reference for the 42 tests currently in the project, what each one guards, and
+Reference for the 47 tests currently in the project, what each one guards, and
 where the gaps are.
 
 **Run:**
@@ -17,15 +17,15 @@ Tests run under `config.test_runner.UnmanagedModelTestRunner`, which creates
 tables for `managed = False` models (`apps.orders.Product`) so the legacy
 ingestion-owned schema is testable.
 
-**Status as of 2026-08-26: 42 passing, 0 failing.** System check clean.
+**Status as of 2026-08-26: 47 passing, 0 failing.** System check clean.
 
 ## Layout
 
 | File | Tests | Covers |
 |---|---:|---|
-| `apps/orders/tests.py` | 35 | Order read/write permissions, tenant isolation, independent customers, scope resolution, order-created email |
+| `apps/orders/tests.py` | 40 | Order read/write permissions, tenant isolation, independent customers, scope resolution, order submit + email |
 | `apps/events/tests.py` | 7 | OrderLine (product picker) CRUD and validation |
-| **Total** | **42** | |
+| **Total** | **47** | |
 
 `apps/catalog`, `apps/tenants`, and `apps/users` have no test module — see
 [Known gaps](#known-gaps).
@@ -135,23 +135,32 @@ could never read back — an orphan visible to nobody.
 | `test_superuser_cannot_create_event` | Superuser POST → **403**, count unchanged. |
 | `test_no_orphan_order_is_left_behind` | No `Order` row is created either — the rejection happens before the event/order pair is written. |
 
-### `OrderCreatedEmailTests` (6)
+### `OrderSubmitTests` (11)
 
-Requirement 3: notify the tenant's configured recipients when an order is
-created. Recipients come from `Tenant.order_notification_emails`, not from
-`role="Master"` users — the schema allows zero, one or many Masters per tenant
-with no guarantee their login email is the right business address. Tests run
-inline (`CELERY_TASK_ALWAYS_EAGER`) against Django's locmem mail backend, so
-neither Redis nor SMTP is required.
+Requirement 3, reworked after code review. The original implementation
+dispatched the notification from `perform_create`, but lines are added
+afterwards through a separate request — so every email shipped with zero lines
+and rendered the template's `{% empty %}` branch. The trigger is now an explicit
+`POST /events/{id}/submit/`, which is the point at which an order actually
+exists to notify about.
+
+Recipients come from `Tenant.order_notification_emails`, not from `role="Master"`
+users — the schema allows zero, one or many Masters per tenant with no guarantee
+their login email is the right business address.
 
 | Test | Asserts |
 |---|---|
-| `test_order_creation_sends_email_to_configured_recipients` | Creating an event sends exactly 1 message, to both configured addresses, with the event title in the subject and the tenant name in the body. |
-| `test_no_email_when_tenant_has_no_recipients_configured` | An unconfigured tenant is a clean **no-op**, not an error — event creation still returns 201 and `mail.outbox` stays empty. |
-| `test_tenant_does_not_receive_other_tenants_notifications` | Tenant B's order never mails tenant A's addresses. |
-| `test_independent_customer_order_sends_no_email` | An independent customer's order (`client IS NULL`) sends nothing and, critically, does not raise — there is no tenant to read a recipient list from. |
-| `test_email_body_lists_order_lines_with_total` | Line items render with name, quantity and a correctly summed total (3 × 2500 cents → `75.00`), verifying the cents→display arithmetic. |
-| `test_task_is_noop_for_missing_order` | Called with an unknown order id, the task logs and returns instead of raising — a deleted order must not spin the retry loop. |
+| `test_creating_event_alone_sends_no_email` | Creating an Event opens an empty basket and notifies nobody. Directly pins the bug that shipped. |
+| `test_submit_sends_email_with_the_actual_lines` | The **real** HTTP flow — create, add 3 × Camisa @ 2500, submit — produces one mail to both recipients containing `Camisa`, `x3`, a correct `75.00` total, and **not** the "Sin productos agregados" empty branch. The original test invoked the task by hand after adding lines, so it passed against broken behaviour; this one asserts on the mail the system really sends. |
+| `test_submit_is_dispatched_asynchronously` | Patches `send_order_created_email.delay` and asserts it was called. Pins the async contract independently of `CELERY_TASK_ALWAYS_EAGER`, which would otherwise hide a regression to a blocking inline call. |
+| `test_cannot_submit_empty_order` | Submitting with no lines → **400**, no mail. |
+| `test_cannot_submit_twice` | Re-submitting → **400**, no second mail. Guards against duplicate notifications. |
+| `test_lines_are_frozen_after_submit` | After submit, add/patch/delete on lines all → **400** and the stored qty is unchanged. Fulfilment cannot end up working from a different basket than the one emailed. |
+| `test_other_tenant_cannot_submit` | A Master of another tenant submitting → **404**, no mail. |
+| `test_no_email_when_tenant_has_no_recipients_configured` | Unconfigured tenant is a clean no-op: submit still returns 200. |
+| `test_independent_customer_submit_sends_no_email` | An independent customer's order (`client IS NULL`) submits fine and sends nothing — there is no tenant to read a recipient list from. |
+| `test_qty_patch_rejects_non_numeric_instead_of_500` | `qty` of `"abc"`, `[1]`, `None`, `0` each → **400**. Previously `int()` raised `ValueError`/`TypeError` and escaped as an unhandled 500. |
+| `test_task_is_noop_for_missing_order` | Unknown order id logs and returns rather than spinning the retry loop. |
 
 ---
 
@@ -180,32 +189,26 @@ authenticates as a tenant-A user.
 
 Honest inventory of what is *not* covered:
 
-1. **No test asserts the task is dispatched asynchronously.** The email tests
-   run with `CELERY_TASK_ALWAYS_EAGER`, so they verify the task's *behaviour*
-   but not that `perform_create` calls `.delay()` rather than executing inline.
-   A regression to a synchronous call would keep every test green while
-   blocking the request on SMTP.
-2. **Retry behaviour is untested.** `autoretry_for=(Exception,)` with 5 attempts
+1. **Retry behaviour is untested.** `autoretry_for=(Exception,)` with 5 attempts
    and backoff is configured but never exercised — a broken template or SMTP
    failure would retry 5 times in production with nothing covering that path.
-3. **`apps/users` has no test module.** Untested: the `LegalRepresentative`
-   endpoints, `UserManagementSerializer`'s role-escalation guard
+2. **`apps/users` has no test module.** Untested: `UserManagementSerializer`'s role-escalation guard
    (`validate_role` blocking non-superusers from assigning `Master`), email
    normalization on create/update, and `UserViewSet` queryset scoping.
-4. **`apps/tenants` has no test module.** `TenantSerializer`'s nested writable
+3. **`apps/tenants` has no test module.** `TenantSerializer`'s nested writable
    `legal_representative` — atomic create/update, the `_UNSET` sentinel that
    distinguishes PATCH-absent from explicit null, and the `get_fields()`
    `UniqueValidator` instance injection — is entirely unexercised despite being
    the most intricate serializer in the codebase.
-5. **`apps/catalog` has no test module.** Soft-delete (`archived_at` +
+4. **`apps/catalog` has no test module.** Soft-delete (`archived_at` +
    `NotArchivedManager` / `all_objects`) and S3 presigned-URL serving are
    untested.
-6. **`OrderLine` has no scoped manager of its own.** It carries no `client` and
+5. **`OrderLine` has no scoped manager of its own.** It carries no `client` and
    is safe today only because both view paths derive the event from a scoped
    `self.get_object()`. Nothing asserts that invariant, so a future view that
    queries `OrderLine.objects.filter(event_id=...)` with a caller-supplied id
    would leak silently.
-7. **No concurrency test** on `add_line`'s `get_or_create` — two simultaneous
+6. **No concurrency test** on `add_line`'s `get_or_create` — two simultaneous
    adds of the same variant could race.
 
 ## Note on version control
