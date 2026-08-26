@@ -8,18 +8,26 @@ def get_current_tenant():
     return _current_tenant.get()
 
 
+def set_current_tenant(tenant):
+    _current_tenant.set(tenant)
+
+
 class TenantMiddleware:
+    """
+    Only owns the request-scoped lifecycle of the tenant ContextVar (reset on
+    exit, to avoid leaking across requests on a reused worker thread). It
+    cannot set the tenant itself: DRF views authenticate via JWT lazily,
+    inside the view, after this middleware has already run — at this point
+    `request.user` is still Django's own AnonymousUser. The actual tenant is
+    set by `apps.tenants.authentication.JWTAuthentication` once it resolves
+    the authenticated user.
+    """
+
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        tenant = None
-        if hasattr(request, "user") and request.user.is_authenticated:
-            tenant = getattr(request.user, "tenant", None)
-
-        token = _current_tenant.set(tenant)
-        request.tenant = tenant
-
+        token = _current_tenant.set(None)
         try:
             response = self.get_response(request)
         finally:
