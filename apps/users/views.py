@@ -1,13 +1,14 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from apps.users.models import User
+from apps.users.models import LegalRepresentative, User
 from apps.users.permissions import IsMasterOrSuperuser
 from apps.users.serializers import (
+    LegalRepresentativeSerializer,
     TenantTokenObtainPairSerializer,
     UserManagementSerializer,
     UserSerializer,
@@ -47,3 +48,22 @@ class UserViewSet(viewsets.ModelViewSet):
         if not user.tenant_id:
             return User.objects.none()
         return User.objects.select_related("tenant").filter(tenant=user.tenant).order_by("date_joined")
+
+
+@extend_schema_view(
+    create=extend_schema(tags=["legal-representatives"]),
+    retrieve=extend_schema(tags=["legal-representatives"]),
+    update=extend_schema(tags=["legal-representatives"]),
+    partial_update=extend_schema(tags=["legal-representatives"]),
+)
+class LegalRepresentativeViewSet(
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    serializer_class = LegalRepresentativeSerializer
+    permission_classes = [IsMasterOrSuperuser]
+
+    def get_queryset(self):
+        return LegalRepresentative.objects.all()

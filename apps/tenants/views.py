@@ -3,13 +3,17 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from apps.tenants.models import Tenant
-from apps.tenants.serializers import TenantSerializer
+from apps.tenants.serializers import TenantSerializer, TenantListSerializer
 from apps.users.permissions import IsMasterOrSuperuser, IsSuperuser
 
 
 @extend_schema(tags=["Tenants"])
 class TenantViewSet(viewsets.ModelViewSet):
-    serializer_class = TenantSerializer
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return TenantListSerializer
+        return TenantSerializer
 
     def get_permissions(self):
         if self.action == "create":
@@ -21,7 +25,7 @@ class TenantViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if user.is_superuser:
-            return Tenant.objects.all().order_by("name")
+            return Tenant.objects.select_related("legal_representative").order_by("name")
         if user.tenant_id:
-            return Tenant.objects.filter(id=user.tenant_id)
+            return Tenant.objects.select_related("legal_representative").filter(id=user.tenant_id)
         return Tenant.objects.none()

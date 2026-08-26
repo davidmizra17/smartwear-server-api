@@ -1,7 +1,14 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from apps.users.models import User
+from apps.users.models import LegalRepresentative, User
+
+
+class LegalRepresentativeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LegalRepresentative
+        fields = ["id", "first_name", "last_name", "email", "id_number"]
+        read_only_fields = ["id"]
 
 
 class UserSerializer(serializers.ModelSerializer):
