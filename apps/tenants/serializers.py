@@ -10,10 +10,13 @@ _UNSET = object()
 
 class TenantSerializer(serializers.ModelSerializer):
     legal_representative = LegalRepresentativeSerializer(required=False, allow_null=True)
+    order_notification_emails = serializers.ListField(
+        child=serializers.EmailField(), required=False, allow_empty=True
+    )
 
     class Meta:
         model = Tenant
-        fields = ["id", "name", "document_id_number", "legal_representative"]
+        fields = ["id", "name", "document_id_number", "legal_representative", "order_notification_emails"]
         read_only_fields = ["id"]
 
     def get_fields(self):
@@ -53,4 +56,4 @@ class TenantListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Tenant
-        fields = ["id", "name", "document_id_number", "legal_representative"]
+        fields = ["id", "name", "document_id_number", "legal_representative", "order_notification_emails"]

@@ -12,6 +12,7 @@ from apps.events.models import Event, OrderLine
 from apps.events.permissions import IsEventOwnerOrSuperuser
 from apps.events.serializers import EventSerializer, OrderLineSerializer, OrderLineWriteSerializer
 from apps.orders.models import Order
+from apps.orders.tasks import send_order_created_email
 
 
 @extend_schema_view(
@@ -42,7 +43,10 @@ class EventViewSet(viewsets.ModelViewSet):
         if user.tenant_id is None and (user.is_superuser or user.role == "Master"):
             raise PermissionDenied("Tenantless Master and superuser accounts cannot create events.")
         event = serializer.save(client=user.tenant, created_by=user)
-        Order.objects.create(event=event, client=event.client)
+        order = Order.objects.create(event=event, client=event.client)
+        # ATOMIC_REQUESTS is off, so the order is already committed here and the
+        # worker cannot observe a missing row.
+        send_order_created_email.delay(str(order.id))
 
     @extend_schema(tags=["events"], request=OrderLineWriteSerializer, responses=OrderLineSerializer)
     @action(detail=True, methods=["post"], url_path="lines")

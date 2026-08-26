@@ -1,11 +1,14 @@
 import uuid
 
+from django.core import mail
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from apps.catalog.models import Product as CatalogProduct, Variant
 from apps.events.models import Event
 from apps.orders.models import Order
+from apps.orders.tasks import send_order_created_email
 from apps.tenants.models import Tenant
 from apps.tenants.scope import (
     DenyAll,
@@ -343,3 +346,77 @@ class TenantlessPrivilegedCreationTests(OrderTestsBase):
         self._post_event()
         self.assertEqual(Order.unscoped.count(), before)
 
+
+class OrderCreatedEmailTests(OrderTestsBase):
+    """
+    Requirement 3: notify the tenant's configured recipients when an order is
+    created. Runs inline because CELERY_TASK_ALWAYS_EAGER is on under tests, and
+    Django swaps in the locmem email backend, so no broker or SMTP is needed.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.tenant_a.order_notification_emails = ["ops@clientea.com", "admin@clientea.com"]
+        self.tenant_a.save()
+        mail.outbox = []
+
+    def _create_event(self, title="Evento con correo"):
+        return self.api.post("/api/v1/events/", {"title": title, "event_date": "2026-09-15"})
+
+    def test_order_creation_sends_email_to_configured_recipients(self):
+        self._auth("operator-a@test.com", "pass1234")
+        res = self._create_event()
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(message.to, ["ops@clientea.com", "admin@clientea.com"])
+        self.assertIn("Evento con correo", message.subject)
+        self.assertIn("Client A", message.body)
+
+    def test_no_email_when_tenant_has_no_recipients_configured(self):
+        # tenant_b was never configured; this must be a clean no-op, not an error.
+        self._auth("master-b@test.com", "pass1234")
+        res = self._create_event()
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(mail.outbox, [])
+
+    def test_tenant_does_not_receive_other_tenants_notifications(self):
+        self._auth("master-b@test.com", "pass1234")
+        self._create_event()
+        for message in mail.outbox:
+            self.assertNotIn("ops@clientea.com", message.to)
+
+    def test_independent_customer_order_sends_no_email(self):
+        # No tenant means no recipient list to read; must not raise.
+        User.objects.create_user(
+            email="indep-mail@test.com", tenant=None, password="pass1234", role="Operator"
+        )
+        self._auth("indep-mail@test.com", "pass1234")
+        res = self._create_event()
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(mail.outbox, [])
+
+    def test_email_body_lists_order_lines_with_total(self):
+        self._auth("operator-a@test.com", "pass1234")
+        event_id = self._create_event().data["id"]
+        product = CatalogProduct.objects.create(name="Camisa")
+        variant = Variant.objects.create(
+            product=product, sku="CAM-L", size="L", price_cents=2500, currency="USD"
+        )
+        mail.outbox = []
+        self.api.post(
+            f"/api/v1/events/{event_id}/lines/",
+            {"variant_id": str(variant.id), "qty": 3},
+            format="json",
+        )
+        order = Order.unscoped.get(event_id=event_id)
+        send_order_created_email(str(order.id))
+        self.assertEqual(len(mail.outbox), 1)
+        body = mail.outbox[0].body
+        self.assertIn("Camisa", body)
+        self.assertIn("x3", body)
+        self.assertIn("75.00", body)
+
+    def test_task_is_noop_for_missing_order(self):
+        send_order_created_email(str(uuid.uuid4()))
+        self.assertEqual(mail.outbox, [])

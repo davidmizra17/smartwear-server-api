@@ -1,0 +1,17 @@
+Nueva orden creada
+
+Cliente: {{ tenant.name }}
+Evento: {{ event.title }}
+Fecha del evento: {{ event.event_date }}
+Estado de la orden: {{ order.get_status_display }}
+
+Detalle de productos:
+{% for row in line_rows %}
+- {{ row.name }} x{{ row.qty }} — ${{ row.unit_price_display }} c/u = ${{ row.line_total_display }}
+{% empty %}
+(Sin productos agregados todavía)
+{% endfor %}
+
+Total: ${{ total_display }}
+
+Este es un mensaje automático generado por Smartwear CRM.
