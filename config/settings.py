@@ -35,6 +35,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves everything under STATIC_ROOT (admin, DRF browsable API, Swagger).
+    # Gunicorn does not serve static itself and DEBUG=False stops Django from
+    # doing it, so without this the admin and docs render unstyled.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -67,7 +71,9 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 import sys
 
-if "test" in sys.argv:
+TESTING = "test" in sys.argv
+
+if TESTING:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -109,7 +115,7 @@ STORAGES = {
         "BACKEND": "storages.backends.s3.S3Storage",
     },
     "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
 AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME", default="")
@@ -158,6 +164,36 @@ SPECTACULAR_SETTINGS = {
 }
 
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:5173"])
+
+# --- Reverse proxy / HTTPS ---
+# In production the SPA and the API are served from one origin by Caddy, which
+# terminates TLS and forwards plain HTTP to gunicorn. Django therefore only
+# learns the original scheme from the header Caddy sets; without this it thinks
+# every request is insecure and refuses to set secure cookies.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+
+# Django validates the Origin header against this list on any unsafe request
+# from a form — without it, logging into /admin/ over HTTPS fails CSRF.
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+
+if not DEBUG:
+    # The test client speaks plain HTTP, so leaving the redirect on turns every
+    # authenticated test into a 301 before it reaches a view. Without this the
+    # suite only passes when DEBUG is true, which is exactly the configuration
+    # production does not run in.
+    SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=True) and not TESTING
+    # The container healthcheck talks plain HTTP to gunicorn directly, so it
+    # must not be bounced to HTTPS or the container is marked unhealthy.
+    SECURE_REDIRECT_EXEMPT = [r"^health/?$"]
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=31536000)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"
+    X_FRAME_OPTIONS = "DENY"
 
 # --- Celery ---
 CELERY_BROKER_URL = env("REDIS_URL", default="redis://localhost:6379/0")

@@ -1,12 +1,24 @@
 from django.conf import settings
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
 docs_permission_classes = [AllowAny] if settings.DEBUG else [IsAuthenticated]
 
+
+def health(_request):
+    """Liveness probe for the container healthcheck and the reverse proxy.
+
+    Deliberately does not touch the database: this answers "is the WSGI worker
+    up", and a Neon cold start should not restart a healthy container.
+    """
+    return JsonResponse({"status": "ok"})
+
+
 urlpatterns = [
+    path("health", health),
     path("admin/", admin.site.urls),
     path("api/v1/auth/", include("apps.users.urls.auth")),
     path("api/v1/users/", include("apps.users.urls.users")),

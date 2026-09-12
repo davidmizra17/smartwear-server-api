@@ -77,7 +77,9 @@ class TenantIsolationTests(OrderTestsBase):
 
     def test_master_cannot_change_status_of_other_tenant_order(self):
         self._auth("master-b@test.com", "pass1234")
-        res = self.api.patch(f"/api/v1/orders/{self.order_a.id}/", {"status": Order.STATUS_ORDERED})
+        res = self.api.patch(
+            f"/api/v1/orders/{self.order_a.id}/status/", {"status": Order.STATUS_ORDERED}
+        )
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
 
@@ -105,22 +107,26 @@ class ReadAccessTests(OrderTestsBase):
 class StatusWritePermissionTests(OrderTestsBase):
     def test_operator_cannot_change_status(self):
         self._auth("operator-a@test.com", "pass1234")
-        res = self.api.patch(f"/api/v1/orders/{self.order_a.id}/", {"status": Order.STATUS_ORDERED})
+        res = self.api.patch(
+            f"/api/v1/orders/{self.order_a.id}/status/", {"status": Order.STATUS_ORDERED}
+        )
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.order_a.refresh_from_db()
         self.assertEqual(self.order_a.status, Order.STATUS_PENDING)
 
     def test_master_can_change_status_of_same_tenant_order(self):
         self._auth("master-a@test.com", "pass1234")
-        res = self.api.patch(f"/api/v1/orders/{self.order_a.id}/", {"status": Order.STATUS_ORDERED})
+        res = self.api.patch(
+            f"/api/v1/orders/{self.order_a.id}/status/", {"status": Order.STATUS_ORDERED}
+        )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.order_a.refresh_from_db()
         self.assertEqual(self.order_a.status, Order.STATUS_ORDERED)
 
-    def test_operator_cannot_use_put(self):
+    def test_operator_cannot_use_put_on_base_order_endpoint(self):
         self._auth("operator-a@test.com", "pass1234")
         res = self.api.put(f"/api/v1/orders/{self.order_a.id}/", {"status": Order.STATUS_ORDERED})
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_delete_not_allowed(self):
         self._auth("master-a@test.com", "pass1234")

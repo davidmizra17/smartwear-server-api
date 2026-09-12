@@ -1,0 +1,34 @@
+# Secrets must never be baked into the image — they arrive at runtime via
+# docker compose env_file. Without these lines `COPY . .` ships live
+# credentials inside every built layer.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+.idea
+.claude
+.vscode
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+staticfiles/
+db.sqlite3
+test.sqlite3
+
+*.md
+justfile
+Dockerfile
+.dockerignore
+docker-compose*.yml

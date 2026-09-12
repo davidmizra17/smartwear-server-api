@@ -36,3 +36,12 @@ class OrderSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class OrderStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Order.STATUS_CHOICES)
+
+    def update(self, instance, validated_data):
+        instance.status = validated_data["status"]
+        instance.save(update_fields=["status", "updated_at"])
+        return instance
